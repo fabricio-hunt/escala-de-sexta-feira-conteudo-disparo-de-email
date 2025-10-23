@@ -1,0 +1,141 @@
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
+from pyspark.sql import SparkSession
+
+# Configurações SMTP
+smtp_server = 'smtp.office365.com'
+smtp_port = 587
+username = 'fabriciomacedo@bemol.com.br'
+password = dbutils.secrets.get(scope="smtp", key="password")
+
+# Data de hoje + 1 dia
+data_alvo = (datetime.now() + timedelta(days=1)).date()
+
+# Consulta à tabela
+spark = SparkSession.builder.getOrCreate()
+df = spark.sql(f"""
+  SELECT nome, email, data_sexta
+  FROM escala_sexta_feira_conteudo
+  WHERE data_sexta = DATE('{data_alvo}')
+""")
+
+# E-mails em cópia
+cc_emails = ["alinesantiago@bemol.com.br", "conteudobol@bemol.com.br"]
+# Enviar e-mails
+for row in df.collect():
+    nome = row['nome']
+    email_destino = row['email']
+    data_sexta = row['data_sexta']
+
+    # Corpo HTML personalizado
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8">
+        <title>Aviso de Escala Presencial</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          @media only screen and (max-width: 600px) {{
+            .container {{ width: 100% !important; }}
+            .p-24 {{ padding: 16px !important; }}
+            .title {{ font-size: 20px !important; line-height: 26px !important; }}
+            .text {{ font-size: 15px !important; line-height: 22px !important; }}
+            .btn {{ display:block !important; width:100% !important; text-align:center !important; }}
+          }}
+        </style>
+      </head>
+      <body style="margin:0; padding:0; background-color:#f4f6f8;">
+        <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+          Aviso de escala presencial nesta sexta-feira.
+        </div>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f4f6f8;">
+          <tr>
+            <td align="center" style="padding:24px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" class="container" style="width:600px; max-width:100%; background-color:#ffffff; border-radius:12px; overflow:hidden;">
+                
+                <tr>
+                  <td align="left" style="padding:20px 24px; background-color:#0285d1;">
+                    <img src="https://i.imgur.com/CHFJwpw.png"
+                         alt="Bemol" width="120" height="auto"
+                         style="display:block; border:0; outline:none; text-decoration:none; width:120px; max-width:120px; height:auto;" />
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="p-24" style="padding:24px;">
+                    <h1 class="title" style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:22px; line-height:28px; color:#111827;">
+                      Olá {nome}, aviso de escala presencial
+                    </h1>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="p-24" style="padding:0 24px 8px 24px;">
+                    <p class="text" style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:16px; line-height:24px; color:#374151;">
+                      Você está escalado(a) para <strong>trabalho presencial nesta sexta-feira</strong>, dia {data_sexta}.
+                      Este agendamento não permanece válido em caso de <strong>feriados</strong> ou <strong>pedidos de troca</strong>.
+                    </p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="p-24" style="padding:16px 24px 8px 24px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e7eb; border-radius:10px;">
+                      <tr>
+                        <td style="padding:16px;">
+                          <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:14px; line-height:20px; color:#111827;">
+                            <strong style="color:#0285d1;">Dica:</strong> se houver dúvidas, responda este e-mail ou contate seu gestor imediato.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="p-24" align="left" style="padding:8px 24px 24px 24px;">
+                    <a href="https://bemol-my.sharepoint.com/:x:/r/personal/thaissilva_bemol_com_br/_layouts/15/doc2.aspx?sourcedoc=%7BCF869456-A7EF-4A53-ADCC-40E77CA46208%7D&file=ESCALAS%20DE%20FERIADO-FÉRIAS%20CONTEÚDO.xlsx&action=default"
+                       class="btn" style="display:inline-block; background-color:#0285d1; color:#ffffff; text-decoration:none; font-family:Arial, Helvetica, sans-serif; font-size:15px; line-height:20px; padding:12px 18px; border-radius:8px;">
+                      Ver detalhes da escala
+                    </a>
+                  </td>
+                </tr>
+
+                <tr><td style="height:1px; background-color:#e5e7eb;">&nbsp;</td></tr>
+                <tr>
+                  <td class="p-24" align="left" style="padding:16px 24px 24px 24px;">
+                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:18px; color:#6b7280;">
+                      Esta é uma mensagem automática.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    # Cria a mensagem HTML
+    msg = MIMEText(html, "html")
+    msg["Subject"] = "Lembrete de Escala de Conteúdo [Sexta-Feira]"
+    msg["From"] = username
+    msg["To"] = email_destino
+    msg["Cc"] = ", ".join(cc_emails)
+
+    # Destinatários
+    recipients = [email_destino] + cc_emails
+
+    # Envia o e-mail
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(username, password)
+        server.sendmail(username, recipients, msg.as_string())
+
+    print(f"E-mail enviado para {nome} ({email_destino})")
+
+print("Todos os e-mails foram enviados com sucesso!")
